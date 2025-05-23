@@ -1,0 +1,853 @@
+<?php
+// --- PHP (Estrutura de Duas Tabelas) ---
+$totalAssentos = 60; // Alterado para 60 lugares
+$poltronas = [];
+for ($i = 1; $i <= $totalAssentos; $i++) {
+    $status = 'livre'; // Todos os assentos começam como disponíveis
+    $poltronas[] = ['numero' => $i, 'status' => $status];
+}
+$poltronasMapeadas = [];
+foreach ($poltronas as $p) {
+    $poltronasMapeadas[$p['numero']] = $p;
+}
+$layoutVisual = [];
+$num = 1;
+for ($i = 0; $i < 15; $i++) { // Ajustado para 15 fileiras
+    $num1 = $num++;
+    $num2 = $num++;
+    $num3 = $num++;
+    $num4 = $num++;
+    $layoutVisual[] = [($num1 <= $totalAssentos) ? $num1 : null, ($num2 <= $totalAssentos) ? $num2 : null, null, ($num3 <= $totalAssentos) ? $num3 : null, ($num4 <= $totalAssentos) ? $num4 : null];
+}
+$candidatosPorta1 = [4, 8, 12];
+$candidatosPorta2 = [28, 32, 36, 40];
+$poltronasDesabilitadasInicialmente = [];
+foreach ($poltronas as $p) {
+    if ($p['status'] === 'bloqueada') {
+        $poltronasDesabilitadasInicialmente[] = $p['numero'];
+    }
+}
+$jsonPoltronasDesabilitadas = json_encode($poltronasDesabilitadasInicialmente);
+$portasSalvasAposAssento = [null, null];
+$jsonPortasSalvas = json_encode($portasSalvasAposAssento);
+
+// --- NOVO: Variável para o nome do mapa (Exemplo - Viria do DB ao carregar) ---
+$nomeMapaAtual = "Meu Layout Padrão 50 Lugares"; // Coloque um valor inicial ou deixe vazio ''
+
+// Função Renderizar TD (Sem botões de porta)
+function render_seat_td_separado($numAssento, $poltronasMapeadas, $globalColumnIndex)
+{
+    if ($numAssento !== null && isset($poltronasMapeadas[$numAssento])) {
+        $poltrona = $poltronasMapeadas[$numAssento];
+        $classes = ['seat', 'habilitado']; // Todos os assentos são habilitados
+        if ($globalColumnIndex === 0) $classes[] = 'assento-janela-esquerda';
+        elseif ($globalColumnIndex === 1) $classes[] = 'assento-corredor-esquerdo';
+        elseif ($globalColumnIndex === 3) $classes[] = 'assento-corredor-direito';
+        elseif ($globalColumnIndex === 4) $classes[] = 'assento-janela-direita';
+
+        echo "<td class=\"" . implode(' ', $classes) . "\" data-seat-number=\"" . $poltrona['numero'] . "\">";
+        echo "<span class='seat-number'>" . ($poltrona['numero'] ?? '??') . "</span>";
+        // Adiciona botões de ação ao lado do assento
+        echo "<div class='seat-actions'>";
+        echo "<button class='btn-remove-seat' data-seat-number='" . $poltrona['numero'] . "' title='Remover Assento'>-</button>";
+        echo "<button class='btn-add-seat' data-seat-number='" . $poltrona['numero'] . "' title='Adicionar Assento'>+</button>";
+        echo "</div>";
+        echo "</td>";
+    } else {
+        echo "<td class=\"espaco\"> </td>";
+    }
+}
+?>
+<!DOCTYPE html>
+<html lang="pt-br">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Editor Layout (Completo - 2 Tabelas)</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        /* CSS Atualizado para Posições Fixas das Tabelas */
+        #layout_onibus_wrapper {
+            display: flex;
+            flex-direction: column;
+            /* Estrutura vertical do layout */
+            align-items: center;
+            /* justify-content: center; */
+            /* Centraliza o conteúdo */
+            position: relative;
+            width: auto;
+            max-width: 350px;
+            height: 700px;
+            background-image: url('images/img-onibus-sem-motorista.png');
+            background-repeat: no-repeat;
+            background-position: center top;
+            background-size: contain;
+            border: 1px solid #ccc;
+            margin: 20px auto;
+            padding-top: 80px;
+            box-sizing: border-box;
+        }
+
+        /* Container para as tabelas com posições absolutas */
+        .tabelas-container {
+            position: relative;
+            width: 200%;
+            display: flex;
+            justify-content: center;
+        }
+
+        /* Posição fixa para tabela esquerda */
+        #tabela-esquerda {
+            position: absolute;
+            left: 50%;
+            transform: translateX(-100%);
+            /* Move para a esquerda do ponto central */
+            margin-right: 7.5px;
+            /* Metade do corredor */
+            z-index: 2;
+        }
+
+        /* Posição fixa para tabela direita */
+        #tabela-direita {
+            position: absolute;
+            left: 50%;
+            margin-left: 7.5px;
+            /* Metade do corredor */
+            z-index: 2;
+        }
+
+        /* Corredor agora é apenas visual */
+        .corredor-central-spacer {
+            width: 15px;
+            height: 1px;
+            /* Apenas para referência */
+        }
+
+        table.poltronas-editaveis {
+            border-collapse: separate;
+            border-spacing: 4px;
+            width: auto;
+            vertical-align: top;
+        }
+
+        table.poltronas-editaveis td {
+            width: 35px;
+            height: 35px;
+            text-align: center;
+            vertical-align: middle;
+            /* border: 1px solid #999; */
+            color: white;
+            font-weight: bold;
+            font-size: 12px;
+            cursor: pointer;
+            user-select: none;
+            box-sizing: border-box;
+            position: relative;
+        }
+
+        td.seat.habilitado {
+            background-color: #007bff;
+        }
+
+        td.seat.habilitado:hover {
+            background-color: #0056b3;
+        }
+
+        td.seat.desabilitado {
+            background-color: red;
+        }
+
+        td.seat.desabilitado:hover {
+            background-color: #cc0000;
+        }
+
+        td.seat.ocupado {
+            background-color: grey;
+            cursor: not-allowed;
+            border-color: #666;
+            color: #eee;
+        }
+
+        td.espaco {
+            border: none;
+            background-color: transparent;
+            cursor: pointer;
+        }
+
+        td.coluna-porta {
+            width: auto;
+            min-width: 25px;
+            border: none;
+            background-color: transparent;
+            vertical-align: middle;
+            text-align: left;
+            padding: 0 2px;
+        }
+
+        .add-door-btn {
+            background: #f0ad4e;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            font-size: 11px;
+            line-height: 18px;
+            text-align: center;
+            cursor: pointer;
+            padding: 0;
+            vertical-align: middle;
+            display: inline-block;
+            margin: 1px;
+        }
+
+        .add-door-btn.door-1 {
+            background: #f0ad4e;
+        }
+
+        .add-door-btn.door-2 {
+            background: #5bc0de;
+        }
+
+        .add-door-btn:hover {
+            filter: brightness(0.9);
+        }
+
+        /* Modificações específicas para a linha de porta */
+        #tabela-direita tr.door-row {
+            background-color: transparent;
+        }
+
+        #tabela-direita tr.door-row td {
+            height: 25px;
+            vertical-align: middle;
+            padding: 2px;
+        }
+
+        /* Configuração específica para portas dentro da tabela fixa */
+        #tabela-direita tr.door-row td.door-space-left {
+            width: 5px !important;
+            padding: 0 !important;
+            border: none;
+            background-color: transparent;
+            float: none;
+            /* Evita comportamentos de flutuação */
+        }
+
+        #tabela-direita tr.door-row td.door-space-right {
+            border: none;
+            background-color: transparent;
+        }
+
+        #tabela-direita tr.door-row td.door-entry {
+            background-color: #e0e0e0;
+            color: #333;
+            text-align: center;
+            font-weight: bold;
+            border: 1px dashed #999;
+            cursor: default;
+            font-size: 10px;
+            position: relative;
+            /* Evita que afete o layout */
+        }
+
+        table.poltronas-editaveis td.seat > span.seat-number {
+            display: inline-block;
+            pointer-events: auto; /* Garante que o clique seja capturado */
+            cursor: pointer;
+        }
+
+        .legenda {
+            margin-top: 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            background-color: #f9f9f9;
+            text-align: left;
+            display: inline-block;
+            width: 100%;
+            border-radius: 5px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+
+        .legenda strong {
+            display: block;
+            margin-bottom: 10px;
+            font-size: 1.1em;
+        }
+
+        .legenda div {
+            margin-bottom: 6px;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+        }
+
+        .legenda span {
+            display: inline-flex;
+            justify-content: center;
+            align-items: center;
+            width: 20px;
+            height: 20px;
+            border: 1px solid #aaa;
+            margin-right: 8px;
+            vertical-align: middle;
+            text-align: center;
+            line-height: 18px;
+            font-size: 10px;
+            font-weight: bold;
+            color: white;
+            box-sizing: border-box;
+        }
+
+        .legenda .leg-habilitado {
+            background-color: #007bff;
+            border-color: #0056b3;
+        }
+
+        .legenda .leg-desabilitado {
+            background-color: red;
+            border-color: #b20000;
+        }
+
+        .legenda .leg-ocupado {
+            background-color: grey;
+            border-color: #555;
+        }
+
+        .legenda .leg-espaco {
+            border: 1px dashed #ccc;
+            background-color: #fff;
+            width: auto;
+            padding: 0 5px;
+            color: #555;
+        }
+
+        .legenda .leg-novo {
+            border: 1px solid #999;
+            background-color: #fff;
+            color: #999;
+            width: auto;
+            padding: 0 5px;
+        }
+
+        .legenda .leg-door-1 {
+            background-color: #f0ad4e;
+            border-radius: 50%;
+            border-color: #c67605;
+        }
+
+        .legenda .leg-door-2 {
+            background-color: #5bc0de;
+            border-radius: 50%;
+            border-color: #318a9e;
+        }
+
+        .legenda .leg-botao-porta {
+            border: none;
+            background: none;
+            width: auto;
+            color: black;
+            font-size: 16px;
+        }
+
+        #seat-context-menu {
+            position: absolute;
+            display: none;
+            background-color: white;
+            border: 1px solid #ccc;
+            box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.2);
+            padding: 5px;
+            z-index: 1000;
+            min-width: 120px;
+        }
+
+        #seat-context-menu button {
+            display: block;
+            width: 100%;
+            margin-bottom: 3px;
+            padding: 3px 8px;
+            font-size: 12px;
+            text-align: left;
+            border: none;
+            background-color: #f8f9fa;
+            cursor: pointer;
+        }
+
+        #seat-context-menu button:hover {
+            background-color: #e2e6ea;
+        }
+
+        #seat-context-menu button:last-child {
+            margin-bottom: 0;
+        }
+
+        #remove-seat-btn {
+            color: red;
+        }
+
+        .seat-actions {
+            margin-top: 5px;
+            display: flex;
+            gap: 5px;
+            justify-content: center;
+        }
+
+        .seat-actions button {
+            padding: 2px 5px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            border: none;
+            border-radius: 50%;
+            width: 25px;
+            height: 25px;
+            text-align: center;
+            line-height: 20px;
+            background-color: #007bff;
+            color: white;
+        }
+
+        .seat-actions button:hover {
+            background-color: #0056b3;
+        }
+
+        .seat-actions .btn-remove-seat {
+            background-color: red;
+        }
+
+        .seat-actions .btn-remove-seat:hover {
+            background-color: #b20000;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container text-center">
+        <div class="row align-items-start">
+            <div class="col">
+                <h1>Editor Layout (Completo - 2 Tabelas)</h1>
+
+                <!-- =========================== -->
+                <!-- == CAMPO NOME DO MAPA == -->
+                <!-- =========================== -->
+                <div class="row justify-content-center mb-4"> <?php // Linha Bootstrap para centralizar e dar margem 
+                                                                ?>
+                    <div class="col-md-8 col-lg-6"> <?php // Limita a largura do campo em telas maiores 
+                                                    ?>
+                        <label for="nome_mapa_input" class="form-label fw-bold">Nome do Mapa:</label>
+                        <input type="text"
+                            class="form-control form-control-lg" <?php // Input maior 
+                                                                    ?>
+                            id="nome_mapa_input"
+                            name="nome_mapa" <?php // <<< NOME que será enviado via POST 
+                                                ?>
+                            placeholder="Ex: Leito DD 64 (Placa XXX-0000)"
+                            value="<?php echo htmlspecialchars($nomeMapaAtual ?? ''); ?>" <?php // Preenche com valor atual (se houver) 
+                                                                                            ?>
+                            required <?php // Torna o campo obrigatório 
+                                        ?>>
+                    </div>
+                </div>
+                <!-- =========================== -->
+                <!-- ====== FIM DO CAMPO ====== -->
+                <!-- =========================== -->
+                <form id="form-layout-onibus" action="salvar_layout.php" method="post">
+                    <input type="hidden" name="poltronas_desabilitadas" id="poltronas_desabilitadas_input" value="<?php echo htmlspecialchars($jsonPoltronasDesabilitadas); ?>">
+                    <input type="hidden" name="door_locations" id="door_locations_input" value="<?php echo htmlspecialchars($jsonPortasSalvas); ?>">
+                    <!-- Menu de Contexto (Re-adicionado) -->
+                    <div id="seat-context-menu">
+                        <button type="button" id="toggle-status-btn">Habilitar/Desabilitar</button>
+                        <button type="button" id="remove-seat-btn">Remover Assento</button>
+                        <button type="button" id="cancel-menu-btn" style="margin-top: 5px; color: grey;">Cancelar</button>
+                    </div>
+
+                    <div id="layout_onibus_wrapper">
+                        <!-- Tabela Esquerda -->
+                        <div class="tabelas-container">
+                            <table id="tabela-esquerda" class="poltronas-editaveis">
+                                <tbody id="tbody-esquerda">
+                                    <?php foreach ($layoutVisual as $rowIndex => $fileira): ?>
+                                        <tr class="seat-row" data-row-index="<?php echo $rowIndex; ?>">
+                                            <?php render_seat_td_separado($fileira[0] ?? null, $poltronasMapeadas, 0); ?>
+                                            <?php render_seat_td_separado($fileira[1] ?? null, $poltronasMapeadas, 1); ?>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                            <div class="corredor-central-spacer"></div>
+                            <!-- Tabela Direita -->
+                            <table id="tabela-direita" class="poltronas-editaveis">
+                                <tbody id="tbody-direita">
+                                    <?php foreach ($layoutVisual as $rowIndex => $fileira): ?>
+                                        <?php
+                                        $numAssentoDir1 = $fileira[3] ?? null;
+                                        $numAssentoJanelaDir = $fileira[4] ?? null;
+                                        $tr_data_attr = ($numAssentoJanelaDir !== null) ? "data-tr-after-seat=\"{$numAssentoJanelaDir}\"" : '';
+                                        ?>
+                                        <tr class="seat-row" data-row-index="<?php echo $rowIndex; ?>" <?php echo $tr_data_attr; ?>>
+                                            <?php render_seat_td_separado($numAssentoDir1, $poltronasMapeadas, 3); ?>
+                                            <?php render_seat_td_separado($numAssentoJanelaDir, $poltronasMapeadas, 4); ?>
+                                            <td class="coluna-porta">
+                                                <?php
+                                                if ($numAssentoJanelaDir !== null && isset($poltronasMapeadas[$numAssentoJanelaDir])) {
+                                                    $poltronaDir = $poltronasMapeadas[$numAssentoJanelaDir];
+                                                    $isEditableDir = ($poltronaDir['status'] !== 'ocupada');
+                                                    if ($isEditableDir) {
+                                                        if (in_array($numAssentoJanelaDir, $candidatosPorta1)) {
+                                                            echo "<button type='button' class='add-door-btn door-1' title='Marcar Entrada 1' data-door-index='0' data-insert-after-seat='" . $numAssentoJanelaDir . "'>1</button>";
+                                                        }
+                                                        if (in_array($numAssentoJanelaDir, $candidatosPorta2)) {
+                                                            echo "<button type='button' class='add-door-btn door-2' title='Marcar Entrada 2' data-door-index='1' data-insert-after-seat='" . $numAssentoJanelaDir . "'>2</button>";
+                                                        }
+                                                    } else {
+                                                        echo " ";
+                                                    }
+                                                } else {
+                                                    echo " ";
+                                                }
+                                                ?>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Legenda (Re-adicionada) -->
+                        <div id="sidebar_legenda" style="position: absolute; right: -350px; top: 0; width: 300px;">
+                            <div class="legenda">
+                                <strong>Legenda:</strong>
+                                <div><span class="leg-habilitado"></span> Assento Habilitado</div>
+                                <div><span class="leg-desabilitado"></span> Assento Desabilitado</div>
+                                <div><span class="leg-ocupado"></span> Assento Ocupado</div>
+                                <div><span class="leg-espaco"> </span> Espaço Vazio (Adicionar)</div>
+                                <div><span class="leg-novo">??</span> Assento Novo</div>
+                                <hr style="margin: 8px 0;">
+                                <div><span class="leg-door-1">1</span> Botão Porta 1</div>
+                                <div><span class="leg-door-2">2</span> Botão Porta 2</div>
+                                <div><span class="leg-botao-porta">🚪</span> Indicador de Porta</div>
+                                <div>Clique em espaço vazio para adicionar assento.</div>
+                                <div>Clique em assento para editar status ou remover.</div>
+                            </div>
+
+                            <div class="legenda">
+                                <strong>Instruções:</strong>
+                                <div>Clique no número do assento para renomeá-lo conforme necessário.</div>
+                            </div>
+
+                            <div style="text-align: center; margin-top: 20px;">
+                                <button type="submit" class="btn btn-primary btn-lg">Salvar Alterações</button>
+                            </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- JAVASCRIPT COMPLETO (2 Tabelas, Menu, Renum. Auto) ---
+        document.addEventListener('DOMContentLoaded', () => {
+            const layoutWrapper = document.getElementById('layout_onibus_wrapper');
+
+            // Evento para o botão "+"
+            layoutWrapper.addEventListener('click', (event) => {
+                if (event.target.classList.contains('btn-add-seat')) {
+                    const seatTd = event.target.closest('td');
+
+                    if (seatTd && seatTd.classList.contains('espaco')) {
+                        const newSeatNumber = prompt("Digite o número para este assento:", "");
+                        if (newSeatNumber !== null && newSeatNumber.trim() !== "") {
+                            seatTd.className = 'seat habilitado';
+                            seatTd.dataset.seatNumber = newSeatNumber.trim();
+                            seatTd.innerHTML = `
+                                <span class='seat-number'>${newSeatNumber.trim()}</span>
+                                <div class='seat-actions'>
+                                    <button class='btn-add-seat' title='Adicionar Assento'>+</button>
+                                    <button class='btn-remove-seat' title='Remover Assento'>-</button>
+                                </div>
+                            `;
+                        } else {
+                            alert("Número do assento é obrigatório.");
+                        }
+                    }
+                }
+            });
+
+            // Evento para o botão "-"
+            layoutWrapper.addEventListener('click', (event) => {
+                if (event.target.classList.contains('btn-remove-seat')) {
+                    const seatTd = event.target.closest('td');
+
+                    if (seatTd && seatTd.classList.contains('seat')) {
+                        const seatNumber = seatTd.dataset.seatNumber;
+                        if (confirm(`Tem certeza que deseja remover o assento ${seatNumber}?`)) {
+                            // Transformar o assento em espaço vazio, mas manter os botões
+                            seatTd.className = 'espaco';
+                            seatTd.removeAttribute('data-seat-number');
+                            seatTd.innerHTML = `
+                                <div class='seat-actions'>
+                                    <button class='btn-add-seat' title='Adicionar Assento'>+</button>
+                                    <button class='btn-remove-seat' title='Remover Assento'>-</button>
+                                </div>
+                            `;
+                        }
+                    }
+                }
+            });
+
+            // Referências
+            const formOnibus = document.getElementById('form-layout-onibus');
+            const hiddenInputDisabled = document.getElementById('poltronas_desabilitadas_input');
+            const hiddenInputDoors = document.getElementById('door_locations_input');
+            const leftTableBody = document.getElementById('tbody-esquerda');
+            const rightTableBody = document.getElementById('tbody-direita');
+            const contextMenu = document.getElementById('seat-context-menu');
+            const toggleStatusBtn = document.getElementById('toggle-status-btn');
+            const removeSeatBtn = document.getElementById('remove-seat-btn');
+            const cancelMenuBtn = document.getElementById('cancel-menu-btn');
+            let currentEditingSeatTd = null;
+
+            const candidatosP1 = <?php echo json_encode($candidatosPorta1); ?>;
+            const candidatosP2 = <?php echo json_encode($candidatosPorta2); ?>;
+
+            // Estado inicial
+            let desabilitadosAtualmente = [];
+            try {
+                const d = JSON.parse(hiddenInputDisabled.value || '[]');
+                if (Array.isArray(d)) desabilitadosAtualmente = d.map(n => parseInt(n, 10)).filter(n => !isNaN(n) && n > 0);
+            } catch (e) {}
+            let portaAposAssento = [null, null];
+            try {
+                const p = JSON.parse(hiddenInputDoors.value || '[null, null]');
+                if (Array.isArray(p) && p.length === 2) portaAposAssento = p.map(n => n === null ? null : parseInt(n, 10)).map(n => (n === null || (!isNaN(n) && n > 0)) ? n : null);
+            } catch (e) {}
+
+            // Funções Auxiliares
+            function atualizarInputDesabilitados() {
+                desabilitadosAtualmente.sort((a, b) => a - b);
+                hiddenInputDisabled.value = JSON.stringify(desabilitadosAtualmente);
+            }
+
+            function updateDoorRow(seatNumberBeforeDoor) {
+                if (!seatNumberBeforeDoor) return;
+
+                // Encontrar a linha TR após o assento específico
+                const targetRow = document.querySelector(`tr.seat-row[data-tr-after-seat="${seatNumberBeforeDoor}"]`);
+                if (!targetRow) return;
+
+                // Verificar se este assento tem uma porta associada
+                const isDoor1 = portaAposAssento[0] === seatNumberBeforeDoor;
+                const isDoor2 = portaAposAssento[1] === seatNumberBeforeDoor;
+
+                // Remover qualquer linha de porta existente após este assento
+                const nextSibling = targetRow.nextElementSibling;
+                if (nextSibling && nextSibling.classList.contains('door-row')) {
+                    nextSibling.remove();
+                }
+
+                // Adicionar uma nova linha de porta se necessário
+                if (isDoor1 || isDoor2) {
+                    const doorNumber = isDoor1 ? 1 : 2;
+                    const doorColor = isDoor1 ? '#f0ad4e' : '#5bc0de';
+
+                    const doorRow = document.createElement('tr');
+                    doorRow.className = 'door-row';
+                    doorRow.dataset.doorAfterSeat = seatNumberBeforeDoor;
+                    doorRow.dataset.doorIndex = isDoor1 ? '0' : '1';
+
+                    // Estrutura modificada para minimizar o impacto no layout
+                    doorRow.innerHTML = `
+            <td class="door-space-left" style="width: 5px !important; padding: 0 !important;"></td>
+            <td class="door-space-left" style="width: 5px !important; padding: 0 !important;"></td>
+            <td class="door-entry" colspan="2" style="border-color: ${doorColor};">
+                🚪 Entrada ${doorNumber}
+            </td>
+            <td class="door-space-right"></td>
+        `;
+
+                    // Inserir a linha de porta após o assento
+                    targetRow.insertAdjacentElement('afterend', doorRow);
+                }
+            }
+
+            function hideContextMenu() {
+                if (contextMenu.style.display === 'block') {
+                    contextMenu.style.display = 'none';
+                }
+                currentEditingSeatTd = null;
+            }
+
+            // Inicialização das portas visuais
+            if (rightTableBody) {
+                const allSeatRowsRight = rightTableBody.querySelectorAll('tr.seat-row[data-tr-after-seat]');
+                allSeatRowsRight.forEach(row => {
+                    const targetSeat = parseInt(row.dataset.trAfterSeat, 10);
+                    if (!isNaN(targetSeat)) {
+                        if (portaAposAssento[0] === targetSeat || portaAposAssento[1] === targetSeat) {
+                            updateDoorRow(targetSeat);
+                        }
+                    }
+                });
+            }
+
+            // Listener para fechar menu
+            document.addEventListener('click', (event) => {
+                if (contextMenu.style.display === 'block' && !contextMenu.contains(event.target) && event.target !== currentEditingSeatTd) {
+                    hideContextMenu();
+                }
+            }, false);
+
+            // Listener Principal no Wrapper
+            if (layoutWrapper) {
+                layoutWrapper.addEventListener('click', (event) => {
+                    let target = event.target;
+                    if (contextMenu.contains(target)) return; // Ignora cliques no menu
+                    if (target.classList.contains('seat-number') && target.parentElement.classList.contains('seat')) target = target.parentElement;
+
+                    // Fecha menu se clicar fora do TD ativo (exceto botão porta)
+                    if (contextMenu.style.display === 'block' && target !== currentEditingSeatTd && !target.classList.contains('add-door-btn')) {
+                        hideContextMenu();
+                    }
+
+                    // 1. Clique em Assento Editável -> Mostra/Esconde Menu
+                    if (target.tagName === 'TD' && target.classList.contains('seat') && !target.classList.contains('ocupado')) {
+                        if (currentEditingSeatTd === target) {
+                            hideContextMenu();
+                            return;
+                        }
+                        currentEditingSeatTd = target;
+                        const rect = target.getBoundingClientRect();
+                        contextMenu.style.top = `${window.scrollY + rect.bottom + 2}px`;
+                        contextMenu.style.left = `${window.scrollX + rect.left}px`;
+                        contextMenu.style.display = 'block';
+                        toggleStatusBtn.textContent = target.classList.contains('desabilitado') ? 'Habilitar Assento' : 'Desabilitar Assento';
+                        // Não precisa stopPropagation aqui se o listener do document verifica currentEditingSeatTd
+                    }
+                    // 2. Clique em Espaço Vazio -> Adiciona Assento e Renumera
+                    else if (target.tagName === 'TD' && target.classList.contains('espaco') && !target.closest('tr.door-row')) {
+                        hideContextMenu();
+                        target.classList.remove('espaco');
+                        target.classList.add('seat');
+
+                        // Solicitar número para o assento
+                        const newSeatNumber = prompt("Digite o número para este assento:", "");
+                        if (newSeatNumber !== null && newSeatNumber.trim() !== "") {
+                            target.dataset.seatNumber = newSeatNumber.trim();
+                            target.innerHTML = `<span class="seat-number">${newSeatNumber.trim()}</span>`;
+                        } else {
+                            alert("Número do assento é obrigatório.");
+                            // Reverter para espaço vazio se o número não for fornecido
+                            target.className = 'espaco';
+                            target.removeAttribute('data-seat-number');
+                            target.innerHTML = '';
+                        }
+                    }
+                    // 1. Modificação no evento de clique no botão de porta
+                    else if (target.classList.contains('add-door-btn') && target.dataset.insertAfterSeat && target.dataset.doorIndex) {
+                        hideContextMenu();
+                        const seatNum = parseInt(target.dataset.insertAfterSeat, 10);
+                        const doorIndex = parseInt(target.dataset.doorIndex, 10);
+
+                        // Encontrar o TR que contém este assento
+                        const seatCell = document.querySelector(`td.seat[data-seat-number="${seatNum}"]`);
+                        const seatRow = seatCell ? seatCell.closest('tr') : null;
+
+                        if (seatRow) {
+                            // Adicionar o atributo data-tr-after-seat ao TR se ainda não existir
+                            if (!seatRow.hasAttribute('data-tr-after-seat')) {
+                                seatRow.setAttribute('data-tr-after-seat', seatNum);
+                            }
+
+                            // Atualizar a porta
+                            if (portaAposAssento[doorIndex] === seatNum) {
+                                // Remover porta existente
+                                portaAposAssento[doorIndex] = null;
+                            } else {
+                                // Remover porta antiga se existir
+                                if (portaAposAssento[doorIndex] !== null) {
+                                    updateDoorRow(portaAposAssento[doorIndex]);
+                                }
+                                // Adicionar nova porta
+                                portaAposAssento[doorIndex] = seatNum;
+                            }
+
+                            // Atualizar visualização e salvar estado
+                            updateDoorRow(seatNum);
+                            hiddenInputDoors.value = JSON.stringify(portaAposAssento);
+                        }
+                    }
+                });
+            }
+
+            // --- Ações dos Botões do Menu de Contexto ---
+            toggleStatusBtn.addEventListener('click', () => {
+                if (!currentEditingSeatTd) return;
+                const seatNumberStr = currentEditingSeatTd.dataset.seatNumber;
+                const seatNumber = parseInt(seatNumberStr, 10);
+                if (!seatNumberStr || isNaN(seatNumber) || seatNumber <= 0) {
+                    alert("Assento precisa ser renumerado.");
+                    hideContextMenu();
+                    return;
+                }
+                const isDisabled = currentEditingSeatTd.classList.contains('desabilitado');
+                const indexInArray = desabilitadosAtualmente.indexOf(seatNumber);
+                const isInArray = indexInArray > -1;
+                if (isDisabled) {
+                    currentEditingSeatTd.classList.remove('desabilitado');
+                    currentEditingSeatTd.classList.add('habilitado');
+                    if (isInArray) {
+                        desabilitadosAtualmente.splice(indexInArray, 1);
+                    }
+                } else {
+                    currentEditingSeatTd.classList.remove('habilitado');
+                    currentEditingSeatTd.classList.add('desabilitado');
+                    if (!isInArray) {
+                        desabilitadosAtualmente.push(seatNumber);
+                    }
+                }
+                atualizarInputDesabilitados();
+                hideContextMenu();
+            });
+            removeSeatBtn.addEventListener('click', () => {
+                if (!currentEditingSeatTd) return;
+
+                const seatNumText = currentEditingSeatTd.querySelector('.seat-number')?.textContent || 'este';
+                if (!confirm(`Tem certeza que deseja remover o assento ${seatNumText}?`)) {
+                    hideContextMenu();
+                    return;
+                }
+
+                // Transformar o assento em espaço vazio, mas manter os botões
+                currentEditingSeatTd.className = 'espaco';
+                currentEditingSeatTd.removeAttribute('data-seat-number');
+                currentEditingSeatTd.innerHTML = `
+                    <div class='seat-actions'>
+                        <button class='btn-add-seat' title='Adicionar Assento'>+</button>
+                        <button class='btn-remove-seat' title='Remover Assento'>-</button>
+                    </div>
+                `;
+                hideContextMenu();
+            });
+            cancelMenuBtn.addEventListener('click', () => {
+                hideContextMenu();
+            });
+
+            // Adiciona evento para renomear assentos
+            document.addEventListener('click', (event) => {
+                const target = event.target;
+
+                // Verifica se o clique foi em um número de assento
+                if (target.classList.contains('seat-number')) {
+                    const newSeatNumber = prompt("Digite o novo número para este assento:", target.textContent);
+                    if (newSeatNumber !== null && newSeatNumber.trim() !== "") {
+                        target.textContent = newSeatNumber.trim();
+                        target.parentElement.dataset.seatNumber = newSeatNumber.trim();
+                    }
+                }
+            });
+        }); // Fim DOMContentLoaded
+    </script>
+</body>
+
+</html>
